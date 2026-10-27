@@ -327,6 +327,12 @@ pub async fn search(
         .map(|hit| {
             serde_json::json!({
                 "name": hit.name,
+                // Menus and recipes share the tree and the search; the UI
+                // needs to tell them apart.
+                "is_menu": hit
+                    .relative_path
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("menu")),
                 "path": hit.relative_path.to_string()
             })
         })

@@ -4,6 +4,7 @@ use serde::Serialize;
 pub struct SearchEntry {
     pub title: String,
     pub path: String,
+    pub is_menu: bool,
     pub tags: Vec<String>,
     pub ingredients: Vec<String>,
 }
@@ -56,6 +57,7 @@ fn collect(tree: &cooklang_find::RecipeTree, prefix: String, out: &mut Vec<Searc
             };
             out.push(SearchEntry {
                 title: name.clone(),
+                is_menu: recipe.is_menu(),
                 path: url_path,
                 tags,
                 ingredients,

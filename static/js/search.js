@@ -48,8 +48,11 @@
     } else {
       results.innerHTML = matches.map(function (m) {
         var href = prefix + "/" + m.path;
+        var badge = m.is_menu ? ' <span class="tag">Menu</span>' : '';
         return '<a href="' + escapeHtml(href) + '" class="search-result block px-4 py-3 hover:bg-sunk border-b border-line last:border-b-0">' +
-          '<div class="font-medium text-text">' + escapeHtml(m.title) + '</div>' +
+          '<div class="flex items-center gap-2">' +
+          '<span class="font-medium text-text">' + escapeHtml(m.title) + '</span>' + badge +
+          '</div>' +
           '</a>';
       }).join("");
     }
