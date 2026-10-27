@@ -113,7 +113,10 @@ pub fn build_recipes_template(input: RecipesBuildInput<'_>) -> Result<RecipesTem
         // Extract tags, image, is_menu, and file timestamps if this is a recipe
         let (tags, image_path, is_menu, modified_at, created_at) =
             if let Some(ref recipe) = child.recipe {
-                let img_path = title_image_url(recipe, base_path, url_prefix);
+                let img_path = recipe
+                    .title_image()
+                    .clone()
+                    .and_then(|img| get_image_path(base_path, url_prefix, img));
 
                 let (modified_at, created_at) = recipe
                     .path()
@@ -522,7 +525,10 @@ pub fn build_recipe_template(input: RecipeBuildInput<'_>) -> Result<RecipeBuildO
     let tags = entry.tags();
 
     // Get the image path if available
-    let image_path = title_image_url(&entry, base_path, url_prefix);
+    let image_path = entry
+        .title_image()
+        .clone()
+        .and_then(|img_path| get_image_path(base_path, url_prefix, img_path));
 
     let mut ingredients = Vec::new();
     let mut cookware = Vec::new();
@@ -1089,7 +1095,10 @@ fn build_menu_template_inner(
         std::collections::HashMap::new();
 
     // Get the image path if available
-    let image_path = title_image_url(&entry, base_path, url_prefix);
+    let image_path = entry
+        .title_image()
+        .clone()
+        .and_then(|img_path| get_image_path(base_path, url_prefix, img_path));
 
     let breadcrumbs: Vec<String> = path.split('/').map(|s| s.to_string()).collect();
 
@@ -1319,39 +1328,6 @@ fn count_recipes_tree(tree: &cooklang_find::RecipeTree) -> Option<usize> {
 /// end an attribute; `#` and `?`, which cut the URL short; `%`, which the
 /// server would decode. Encoded, it is inert wherever it lands, and those
 /// pictures load at all (#548).
-/// The browser URL for an entry's title image.
-///
-/// Frontmatter paths are relative to the **recipe's own folder**
-/// (`image: cover.jpg` next to the file), not to the collection root. A picture
-/// dropped beside the recipe keeps working as it always has, since
-/// [`RecipeEntry::title_image`] hands back an absolute path for those.
-fn title_image_url(
-    entry: &cooklang_find::RecipeEntry,
-    base_path: &Utf8Path,
-    prefix: &str,
-) -> Option<String> {
-    let raw = entry.title_image().clone()?;
-    let resolved = resolve_image_path(entry.path().map(|p| p.as_path()), &raw);
-    get_image_path(base_path, prefix, resolved)
-}
-
-/// Join a frontmatter image path onto the directory holding the recipe.
-/// `http(s)` URLs, absolute paths and entries without a file (content-only)
-/// are passed through untouched.
-fn resolve_image_path(recipe_file: Option<&Utf8Path>, raw: &str) -> String {
-    if raw.starts_with("http://") || raw.starts_with("https://") {
-        return raw.to_string();
-    }
-    let path = Utf8Path::new(raw);
-    if path.is_absolute() {
-        return raw.to_string();
-    }
-    match recipe_file.and_then(|file| file.parent()) {
-        Some(dir) => dir.join(path).to_string(),
-        None => raw.to_string(),
-    }
-}
-
 pub(crate) fn get_image_path(
     base_path: &Utf8Path,
     prefix: &str,
@@ -1412,35 +1388,11 @@ fn static_url(prefix: &str, relative: &Utf8Path) -> String {
 
 #[cfg(test)]
 mod image_path_tests {
-    use super::{get_image_path, resolve_image_path};
+    use super::get_image_path;
     use camino::Utf8Path;
 
     fn url(base: &str, prefix: &str, image: &str) -> Option<String> {
         get_image_path(Utf8Path::new(base), prefix, image.to_string())
-    }
-
-    /// Frontmatter paths are relative to the recipe's folder, not the root.
-    #[test]
-    fn a_relative_metadata_image_follows_the_recipe() {
-        let file = camino::Utf8Path::new("/recipes/Sets/Beef.menu");
-        assert_eq!(
-            resolve_image_path(Some(file), "cover.jpg"),
-            "/recipes/Sets/cover.jpg"
-        );
-    }
-
-    #[test]
-    fn absolute_urls_and_paths_are_left_alone() {
-        let file = camino::Utf8Path::new("/recipes/Sets/Beef.menu");
-        assert_eq!(
-            resolve_image_path(Some(file), "https://example.com/a.jpg"),
-            "https://example.com/a.jpg"
-        );
-        assert_eq!(
-            resolve_image_path(Some(file), "/elsewhere/a.jpg"),
-            "/elsewhere/a.jpg"
-        );
-        assert_eq!(resolve_image_path(None, "cover.jpg"), "cover.jpg");
     }
 
     /// The folder name from #548: unencoded, its `"` ended the `src`
