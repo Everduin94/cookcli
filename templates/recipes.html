@@ -136,7 +136,7 @@
                 </div>
                 {% match item.description %}
                 {% when Some with (description) %}
-                <p class="text-muted text-sm">{{ description }}</p>
+                <p class="text-muted text-sm line-clamp-2">{{ description }}</p>
                 {% when None %}
                 {% endmatch %}
                 {% if !item.tags.is_empty() %}

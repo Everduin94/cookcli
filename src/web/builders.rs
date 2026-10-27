@@ -156,7 +156,12 @@ pub fn build_recipes_template(input: RecipesBuildInput<'_>) -> Result<RecipesTem
             } else {
                 None
             },
-            description: None,
+            description: child
+                .recipe
+                .as_ref()
+                .and_then(|r| r.metadata().get("description"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
             tags,
             image_path,
             is_menu,
