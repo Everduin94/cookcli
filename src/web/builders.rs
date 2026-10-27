@@ -945,6 +945,10 @@ pub fn build_recipe_template(input: RecipeBuildInput<'_>) -> Result<RecipeBuildO
         }
     }
 
+    // Optional `ingredient_groups` frontmatter: a mapping of bucket name to
+    // ingredient names. Recipes without it keep the section-grouped sidebar.
+    let ingredient_groups = build_ingredient_groups(&recipe, &ingredients);
+
     let breadcrumbs: Vec<String> = recipe_path
         .split('/')
         .map(|s| s.trim_end_matches(".cook").to_string())
@@ -1034,6 +1038,7 @@ pub fn build_recipe_template(input: RecipeBuildInput<'_>) -> Result<RecipeBuildO
         ingredients,
         cookware,
         sections,
+        ingredient_groups,
         image_path,
         tr: Tr::new(lang),
         prefix: url_prefix.to_string(),
@@ -1903,5 +1908,199 @@ mod reference_link_tests {
         assert_eq!(reference_query(Some(1.0 / 3.0), None), "?scale=0.333");
         assert_eq!(reference_query(None, Some(4)), "");
         assert_eq!(reference_query(Some(f64::NAN), None), "");
+    }
+}
+
+/// Bucket the recipe's ingredients by the optional `ingredient_groups` metadata.
+///
+/// ```yaml
+/// ingredient_groups:
+///   egg base: [egg, milk, cottage cheese]
+///   sauce: [ketchup, mayo, hot sauce]
+/// ```
+///
+/// Names match case-insensitively against the ingredient's display name. An
+/// ingredient listed in two groups stays in the first one; anything not listed
+/// lands in a trailing group so no ingredient can disappear from the sidebar.
+/// Returns an empty vec when the key is absent, which leaves the caller on the
+/// section-grouped behaviour.
+fn build_ingredient_groups(
+    recipe: &cooklang::model::Recipe,
+    ingredients: &[crate::web::templates::IngredientData],
+) -> Vec<crate::web::templates::IngredientGroup> {
+    use crate::web::templates::IngredientGroup;
+
+    let Some(value) = recipe.metadata.get("ingredient_groups") else {
+        return Vec::new();
+    };
+
+    let Some(mapping) = value.as_mapping() else {
+        tracing::warn!("ingredient_groups must be a mapping of group name to ingredient names");
+        return Vec::new();
+    };
+
+    let mut claimed = vec![false; ingredients.len()];
+    let mut groups: Vec<IngredientGroup> = Vec::new();
+
+    for (key, value) in mapping {
+        let Some(group_name) = key.as_str() else {
+            continue;
+        };
+
+        // Accept a YAML sequence as well as "a, b, c" for convenience.
+        let wanted: Vec<String> = match value {
+            serde_yaml::Value::Sequence(items) => items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(|name| name.trim().to_lowercase())
+                .filter(|name| !name.is_empty())
+                .collect(),
+            serde_yaml::Value::String(list) => list
+                .split(',')
+                .map(|name| name.trim().to_lowercase())
+                .filter(|name| !name.is_empty())
+                .collect(),
+            _ => continue,
+        };
+
+        let mut bucket: Vec<crate::web::templates::IngredientData> = Vec::new();
+        for name in &wanted {
+            let mut found = false;
+            for (index, ingredient) in ingredients.iter().enumerate() {
+                if claimed[index] {
+                    continue;
+                }
+                if ingredient.name.to_lowercase() == *name {
+                    claimed[index] = true;
+                    bucket.push(ingredient.clone());
+                    found = true;
+                }
+            }
+            if !found {
+                tracing::warn!(
+                    "ingredient_groups: '{name}' in group '{group_name}' is not an ingredient of this recipe"
+                );
+            }
+        }
+
+        if !bucket.is_empty() {
+            groups.push(IngredientGroup {
+                name: group_name.to_string(),
+                ingredients: bucket,
+            });
+        }
+    }
+
+    let unlisted: Vec<_> = ingredients
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !claimed[*index])
+        .map(|(_, ingredient)| ingredient.clone())
+        .collect();
+    if !unlisted.is_empty() {
+        groups.push(IngredientGroup {
+            name: "Other".to_string(),
+            ingredients: unlisted,
+        });
+    }
+
+    groups
+}
+
+#[cfg(test)]
+mod ingredient_groups_tests {
+    use super::*;
+    use askama::Template;
+
+    fn page(recipe: &str) -> Box<RecipeTemplate> {
+        let dir = tempfile::TempDir::new().unwrap();
+        let base = Utf8Path::from_path(dir.path()).unwrap();
+        std::fs::write(base.join("Soup.cook"), recipe).unwrap();
+        let output = build_recipe_template(RecipeBuildInput {
+            base_path: base,
+            url_prefix: "",
+            recipe_path: "Soup",
+            aisle_path: None,
+            scale: 1.0,
+            servings: None,
+            lang: "en-US".parse().unwrap(),
+            static_mode: false,
+            repo_url: None,
+            features: FeatureFlags::default(),
+            viewer: Viewer::default(),
+        })
+        .unwrap();
+        match output {
+            RecipeBuildOutput::Recipe(template) => template,
+            RecipeBuildOutput::Menu(_) => panic!("Soup.cook is not a menu"),
+        }
+    }
+
+    fn buckets(template: &RecipeTemplate) -> Vec<(String, Vec<String>)> {
+        template
+            .ingredient_groups
+            .iter()
+            .map(|group| {
+                (
+                    group.name.clone(),
+                    group.ingredients.iter().map(|i| i.name.clone()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    const TWO_STEPS: &str = "Add @flour{200%g} and @salt{3%g}.\n\nWhisk @egg{2} into @milk{100%ml}.\n";
+
+    #[test]
+    fn no_metadata_leaves_the_sidebar_alone() {
+        let template = page(TWO_STEPS);
+        assert!(template.ingredient_groups.is_empty());
+        assert!(!template.sections.is_empty());
+    }
+
+    #[test]
+    fn groups_come_from_the_metadata_in_order() {
+        let recipe = format!(
+            "---\ningredient_groups:\n  egg base: [egg, milk]\n  dry: flour, salt\n---\n\n{TWO_STEPS}"
+        );
+        let template = page(&recipe);
+        assert_eq!(
+            buckets(&template),
+            vec![
+                ("egg base".to_string(), vec!["egg".to_string(), "milk".to_string()]),
+                ("dry".to_string(), vec!["flour".to_string(), "salt".to_string()]),
+            ]
+        );
+    }
+
+    #[test]
+    fn unlisted_ingredients_land_in_a_trailing_group() {
+        let recipe = format!("---\ningredient_groups:\n  dry: [flour]\n---\n\n{TWO_STEPS}");
+        let template = page(&recipe);
+        let last = buckets(&template).pop().unwrap();
+        assert_eq!(last.0, "Other");
+        let mut names = last.1;
+        names.sort();
+        assert_eq!(names, vec!["egg", "milk", "salt"]);
+    }
+
+    #[test]
+    fn an_ingredient_listed_twice_stays_in_the_first_group() {
+        let recipe = format!(
+            "---\ningredient_groups:\n  first: [flour, salt]\n  second: [flour]\n---\n\n{TWO_STEPS}"
+        );
+        let template = page(&recipe);
+        let groups = buckets(&template);
+        assert_eq!(groups[0].1, vec!["flour", "salt"]);
+        assert!(!groups.iter().any(|(name, items)| name == "second" && items.contains(&"flour".to_string())));
+    }
+
+    #[test]
+    fn an_unknown_name_is_ignored_without_dropping_ingredients() {
+        let recipe = format!("---\ningredient_groups:\n  dry: [flour, unicorn]\n---\n\n{TWO_STEPS}");
+        let template = page(&recipe);
+        let all: usize = template.ingredient_groups.iter().map(|g| g.ingredients.len()).sum();
+        assert_eq!(all, template.ingredients.len());
+        assert!(buckets(&template)[0].1.contains(&"flour".to_string()));
     }
 }

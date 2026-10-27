@@ -262,7 +262,57 @@
         <div class="md:col-span-1">
             <div class="card p-6">
                 <h2 class="text-title font-bold mb-4 text-accent-text">🥘 {{ tr.t("recipe-ingredients") }}</h2>
-                {% if sections.len() > 1 %}
+                {% if ingredient_groups.len() > 0 %}
+                <!-- Sidebar buckets from the optional `ingredient_groups` metadata -->
+                {% for group in ingredient_groups %}
+                <h3 class="text-title font-semibold mt-4 mb-2 text-accent-text">{{ group.name }}</h3>
+                <ul class="ingredient-list space-y-3 {% if !loop.last %}mb-4{% endif %}">
+                    {% for ingredient in group.ingredients %}
+                    <li class="ingredient-row">
+                        <div class="flex-1 flex items-center">
+                            {% match ingredient.reference_path %}
+                            {% when Some with (path) %}
+                            {% if !static_mode && viewer.can_edit_lists() && !ingredient.optional %}
+                            <input type="checkbox" checked
+                                   class="ref-checkbox accent-[var(--accent)] mr-2 shrink-0"
+                                   data-ref-path="{{ path }}"
+                                   title="{{ tr.t("shopping-include-in-list") }}">
+                            {% endif %}
+                            <a href="{{ prefix }}/recipe/{{ path }}{% if static_mode %}.html{% endif %}{{ ingredient.reference_query }}" class="font-medium text-info hover:underline flex items-center gap-1">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+                                </svg>
+                                {{ ingredient.name }}
+                            </a>
+                            {% when None %}
+                            {% if !static_mode && viewer.can_edit_lists() && ingredient.optional %}
+                            <input type="checkbox"
+                                   class="opt-checkbox accent-[var(--accent)] mr-2 shrink-0"
+                                   data-name="{{ ingredient.name }}"
+                                   title="{{ tr.t("shopping-include-in-list") }}">
+                            {% endif %}
+                            <span class="font-medium">{{ ingredient.name }}</span>
+                            {% endmatch %}
+                            {% match ingredient.note %}
+                            {% when Some with (note) %}
+                            <span class="row-note italic ml-1 break-words" aria-label="{{ tr.t("recipe-preparation") }}: {{ note }}">({{ note }})</span>
+                            {% when None %}
+                            {% endmatch %}
+                            {% if ingredient.optional %}
+                            <span class="row-note italic ml-1">{{ tr.t("recipe-optional") }}</span>
+                            {% endif %}
+                        </div>
+                        <span class="row-value ml-2">
+                            {% match ingredient.quantity %}
+                            {% when Some with (quantity) %}{{ quantity }}{% when None %}{% endmatch %}
+                            {% match ingredient.unit %}
+                            {% when Some with (unit) %} {{ unit }}{% when None %}{% endmatch %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endfor %}
+                {% else if sections.len() > 1 %}
                 <!-- Display ingredients grouped by section -->
                 {% for section in sections %}
                 {% if section.ingredients.len() > 0 %}

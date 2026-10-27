@@ -361,6 +361,9 @@ pub struct RecipeTemplate {
     pub ingredients: Vec<IngredientData>,
     pub cookware: Vec<CookwareData>,
     pub sections: Vec<RecipeSection>,
+    /// Sidebar buckets from the optional `ingredient_groups` metadata.
+    /// Empty when the recipe does not declare them.
+    pub ingredient_groups: Vec<IngredientGroup>,
     pub image_path: Option<String>,
     pub tr: Tr,
     pub prefix: String,
@@ -945,6 +948,15 @@ pub struct CookwareData {
     pub name: String,
     /// Marked optional in the recipe (`#?splatter guard{}`).
     pub optional: bool,
+}
+
+/// One bucket of the sidebar when a recipe declares `ingredient_groups` in
+/// its frontmatter. Purely additive: recipes without that key keep the
+/// section-grouped sidebar.
+#[derive(Debug, Clone, Serialize)]
+pub struct IngredientGroup {
+    pub name: String,
+    pub ingredients: Vec<IngredientData>,
 }
 
 #[derive(Debug, Clone, Serialize)]
